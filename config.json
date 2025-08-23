@@ -1,0 +1,29 @@
+{
+    "rendering_backend": "opengl",
+    "is_spread_view": true,
+    "binding_direction": "left",
+    "spread_view_first_page_single": false,
+    "window_size": [
+        1280,
+        768
+    ],
+    "window_position": [
+        417,
+        349
+    ],
+    "window_geometry": [
+        417,
+        349,
+        1280,
+        768
+    ],
+    "parallel_decoding_workers": 8,
+    "resampling_mode_cpu": "SKIMAGE_ORDER_5",
+    "resampling_mode_gl": "GL_QUINTIC",
+    "resampling_mode_dx": "DX_NEAREST",
+    "show_advanced_cache_options": true,
+    "max_cache_size_mb": 64,
+    "cpu_max_prefetch_pages": 1,
+    "gpu_max_prefetch_pages": 1,
+    "show_status_bar_info": false
+}

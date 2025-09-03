@@ -2,7 +2,7 @@
     "rendering_backend": "opengl",
     "is_spread_view": true,
     "binding_direction": "left",
-    "spread_view_first_page_single": false,
+    "spread_view_first_page_single": true,
     "window_size": [
         1280,
         768

@@ -294,7 +294,7 @@ class UIManager(QObject):
             is_first_page_single = self.app_state.spread_view_first_page_single and self.app_state.current_page_index == 0
             page_str = f"{current_page_num}"
             if self.app_state.current_page_index + 1 < total_pages and not is_first_page_single:
-                page_str += f"-{{current_page_num + 1}}"
+                page_str += f"-{current_page_num + 1}"
             self.main_window.page_info_label.setText(f"Page: {page_str} / {total_pages}")
             
             binding_str = "右綴じ" if self.app_state.binding_direction == 'right' else "左綴じ"

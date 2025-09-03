@@ -116,13 +116,16 @@ class FileLoader(QObject):
         self.archive_data: io.BytesIO | None = None
 
         if self.load_type == 'archive':
-            try:
-                with open(self.path, 'rb') as f:
-                    self.archive_data = io.BytesIO(f.read())
-                log.info(f"Loaded archive '{self.path}' into memory ({self.archive_data.getbuffer().nbytes / (1024*1024):.2f} MB)")
-            except Exception as e:
-                log.error(f"Failed to load archive file into memory: {e}")
-                raise IOError(f"書庫ファイル '{self.path}' をメモリに読み込めませんでした。") from e
+            # For RAR files, we need the file path, not in-memory data.
+            ext = os.path.splitext(self.path)[1].lower()
+            if ext not in ['.rar', '.cbr']:
+                try:
+                    with open(self.path, 'rb') as f:
+                        self.archive_data = io.BytesIO(f.read())
+                    log.info(f"Loaded archive '{self.path}' into memory ({self.archive_data.getbuffer().nbytes / (1024*1024):.2f} MB)")
+                except Exception as e:
+                    log.error(f"Failed to load archive file into memory: {e}")
+                    raise IOError(f"書庫ファイル '{self.path}' をメモリに読み込めませんでした。") from e
 
         self.image_list = self._create_image_list()
 
@@ -155,20 +158,19 @@ class FileLoader(QObject):
         elif self.load_type == 'image':
             image_list.append(self.path)
         elif self.load_type == 'archive':
-            if not self.archive_data:
-                log.error("Archive data is not loaded into memory.")
-                return []
-            
-            self.archive_data.seek(0)
             ext = os.path.splitext(self.path)[1].lower()
             
             try:
                 if ext in ['.zip', '.cbz']:
+                    if not self.archive_data: return []
+                    self.archive_data.seek(0)
                     self.reader = ZipReader(self.archive_data)
                 elif ext in ['.7z', '.cb7']:
+                    if not self.archive_data: return []
+                    self.archive_data.seek(0)
                     self.reader = SevenZipReader(self.archive_data)
                 elif ext in ['.rar', '.cbr']:
-                    self.reader = RarReader(self.archive_data)
+                    self.reader = RarReader(self.path)
                 else:
                     raise NotImplementedError(f"Unsupported archive format: {ext}")
                 

@@ -2,6 +2,20 @@ import sys
 import multiprocessing
 import logging
 import os
+import platform
+
+# --- Set unrar.dll path before any other imports ---
+# This needs to be done before the `unrar` library is imported by any module.
+if platform.system() == 'Windows':
+    if getattr(sys, 'frozen', False):
+        base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
+    else:
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    
+    lib_path = os.path.join(base_path, 'unrar.dll')
+    
+    if os.path.exists(lib_path):
+        os.environ['UNRAR_LIB_PATH'] = lib_path
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer

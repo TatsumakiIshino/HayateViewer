@@ -3,3 +3,9 @@
 /.venv
 /activate.bat
 /roocode_manual.md
+__pycache__/
+*.spec
+build/
+dist/
+.vscode/
+unrar.dll

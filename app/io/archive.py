@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 
 import py7zr
-import unrar
+from unrar.cffi import rarfile
 from PySide6.QtCore import QThread, Signal, Slot, QMutex, QWaitCondition
 
 from app.constants import SUPPORTED_FORMATS
@@ -152,15 +152,15 @@ class SevenZipReader(IArchiveReader):
 class RarReader(IArchiveReader):
     """RAR書庫を読み込むためのIArchiveReader実装。"""
 
-    def __init__(self, file_like_object):
+    def __init__(self, file_path):
         """
         RarReaderを初期化します。
 
         Args:
-            file_like_object: RAR書庫のファイルライクオブジェクト。
+            file_path: RAR書庫へのファイルパス。
         """
-        super().__init__(file_like_object)
-        self.rar_file = unrar.rarfile.RarFile(self.file_like_object)
+        super().__init__(file_path)
+        self.rar_file = rarfile.RarFile(file_path)
 
     def get_filelist(self) -> list[str]:
         """
@@ -187,7 +187,6 @@ class RarReader(IArchiveReader):
         Returns:
             ファイルのバイナリデータ。
         """
-        self.file_like_object.seek(0)
         return self.rar_file.read(name)
 
     def close(self) -> None:

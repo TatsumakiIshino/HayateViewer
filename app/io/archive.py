@@ -15,6 +15,10 @@ from app.constants import SUPPORTED_FORMATS
 
 log = logging.getLogger(__name__)
 
+def natural_sort_key(s):
+    """自然順ソート用のキーを生成する。"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
 # --- 書庫読み込みインターフェース ---
 class IArchiveReader(ABC):
     """書庫読み込みのインターフェースを定義する抽象基底クラス。"""
@@ -63,8 +67,7 @@ class ZipReader(IArchiveReader):
             f for f in all_files
             if os.path.splitext(f)[1].lower() in SUPPORTED_FORMATS
         ]
-        # TODO: natsortを使った自然順ソートを後で実装する
-        return sorted(supported_files)
+        return sorted(supported_files, key=natural_sort_key)
 
     def read_file(self, name: str) -> bytes:
         """
@@ -121,8 +124,7 @@ class SevenZipReader(IArchiveReader):
             f for f in self._all_files
             if os.path.splitext(f)[1].lower() in SUPPORTED_FORMATS and not f.endswith('/')
         ]
-        # TODO: natsortを使った自然順ソートを後で実装する
-        return sorted(supported_files)
+        return sorted(supported_files, key=natural_sort_key)
 
     def read_file(self, name: str) -> bytes:
         """
@@ -174,8 +176,7 @@ class RarReader(IArchiveReader):
             f for f in all_files
             if os.path.splitext(f)[1].lower() in SUPPORTED_FORMATS
         ]
-        # TODO: natsortを使った自然順ソートを後で実装する
-        return sorted(supported_files)
+        return sorted(supported_files, key=natural_sort_key)
 
     def read_file(self, name: str) -> bytes:
         """
@@ -205,21 +206,23 @@ class ExtractionStatus(Enum):
 class ExtractionThread(QThread):
     """
     書庫ファイルをバックグラウンドでメモリに展開するスレッド。
-    現在の表示ページに応じて、展開の優先順位を動的に変更する。
+    現在の表示ページが含まれるフォルダ単位で展開を行う。
     """
     progress = Signal(int, int)  # current, total
     first_file_extracted = Signal(str)
     finished_with_status = Signal(ExtractionStatus)
 
-    def __init__(self, reader: IArchiveReader, file_list: list[str], cache: dict, cache_lock: QMutex, cache_wait_condition):
+    def __init__(self, reader: IArchiveReader, file_list: list[str], folder_indices: list[int], cache: dict, cache_lock: QMutex, cache_wait_condition):
         super().__init__()
         self.reader = reader
+        self.file_list = file_list
+        self.folder_indices = folder_indices
         self.cache = cache
         self.cache_lock = cache_lock
         self.cache_wait_condition = cache_wait_condition
 
-        self.unextracted_files = file_list[:]
-        self.total_files = len(self.unextracted_files)
+        self.total_files = len(self.file_list)
+        self.unextracted_folders = list(range(len(self.folder_indices)))
         
         self.current_page_index = 0
         self.page_index_lock = threading.Lock()
@@ -239,67 +242,83 @@ class ExtractionThread(QThread):
         with self.page_index_lock:
             return self.current_page_index
 
-    def _find_closest_file(self) -> str | None:
-        """未展開のファイルの中から、現在のページに最も近いファイルを見つける。"""
-        if not self.unextracted_files:
+    def _find_closest_folder_index(self) -> int | None:
+        """未展開のフォルダの中から、現在のページに最も近いフォルダを見つける。"""
+        if not self.unextracted_folders:
             return None
 
         current_page = self._get_current_page()
         
-        def get_numeric_part(filename):
-            numbers = re.findall(r'\d+', os.path.basename(filename))
-            return int(numbers[-1]) if numbers else -1
+        closest_folder_idx = -1
+        min_distance = float('inf')
 
-        closest_file = min(
-            self.unextracted_files,
-            key=lambda f: abs(get_numeric_part(f) - current_page)
-        )
-        return closest_file
+        for folder_idx in self.unextracted_folders:
+            start_page = self.folder_indices[folder_idx]
+            end_page = self.folder_indices[folder_idx + 1] - 1 if folder_idx + 1 < len(self.folder_indices) else self.total_files - 1
+            
+            if start_page <= current_page <= end_page:
+                return folder_idx # 現在ページが含まれるフォルダを最優先
+
+            distance = abs(start_page - current_page)
+            if distance < min_distance:
+                min_distance = distance
+                closest_folder_idx = folder_idx
+        
+        return closest_folder_idx
 
     def run(self):
-        """メインの展開ループ。"""
+        """メインの展開ループ。フォルダ単位で処理する。"""
         self._status = ExtractionStatus.RUNNING
         first_file_emitted = False
-        
-        while self._running and self.unextracted_files:
-            target_file = self._find_closest_file()
-            if target_file is None:
+        extracted_count = 0
+
+        while self._running and self.unextracted_folders:
+            target_folder_idx = self._find_closest_folder_index()
+            if target_folder_idx is None:
                 break
 
-            # すでにキャッシュに存在するか最終確認
-            self.cache_lock.lock()
-            is_cached = target_file in self.cache
-            self.cache_lock.unlock()
+            start_page = self.folder_indices[target_folder_idx]
+            end_page = self.folder_indices[target_folder_idx + 1] if target_folder_idx + 1 < len(self.folder_indices) else self.total_files
+            
+            files_in_folder = self.file_list[start_page:end_page]
+            
+            for target_file in files_in_folder:
+                if not self._running:
+                    break
 
-            if is_cached:
-                self.unextracted_files.remove(target_file)
-                continue
+                self.cache_lock.lock()
+                is_cached = target_file in self.cache
+                self.cache_lock.unlock()
 
-            try:
-                data = self.reader.read_file(target_file)
-                if data:
-                    self.cache_lock.lock()
-                    try:
-                        self.cache[target_file] = data
-                        if not first_file_emitted:
-                            self.first_file_extracted.emit(target_file)
-                            first_file_emitted = True
-                        
-                        data_size_mb = len(data) / (1024 * 1024)
-                        log.info(f"[Extraction] Cached: {target_file} ({data_size_mb:.2f} MB)")
-                    finally:
-                        self.cache_lock.unlock()
-                    self.cache_wait_condition.wakeAll()
+                if is_cached:
+                    continue
 
-                if target_file in self.unextracted_files:
-                    self.unextracted_files.remove(target_file)
-                
-                extracted_count = self.total_files - len(self.unextracted_files)
-                self.progress.emit(extracted_count, self.total_files)
+                try:
+                    data = self.reader.read_file(target_file)
+                    if data:
+                        self.cache_lock.lock()
+                        try:
+                            self.cache[target_file] = data
+                            if not first_file_emitted:
+                                self.first_file_extracted.emit(target_file)
+                                first_file_emitted = True
+                            
+                            data_size_mb = len(data) / (1024 * 1024)
+                            log.info(f"[Extraction] Cached: {target_file} ({data_size_mb:.2f} MB)")
+                        finally:
+                            self.cache_lock.unlock()
+                        self.cache_wait_condition.wakeAll()
+                except Exception as e:
+                    log.error(f"Failed to extract {target_file}: {e}", exc_info=True)
 
-            except Exception as e:
-                log.error(f"Failed to extract {target_file}: {e}", exc_info=True)
-                self.unextracted_files.remove(target_file) # エラーが発生したファイルは再試行しない
+            if not self._running:
+                break
+
+            if target_folder_idx in self.unextracted_folders:
+                self.unextracted_folders.remove(target_folder_idx)
+
+            extracted_count += len(files_in_folder)
+            self.progress.emit(extracted_count, self.total_files)
 
         if not self._running:
             self._status = ExtractionStatus.CANCELLED

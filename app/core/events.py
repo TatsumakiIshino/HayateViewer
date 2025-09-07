@@ -1,4 +1,5 @@
 import logging
+import bisect
 from PySide6.QtCore import Qt, QObject, Signal
 from PySide6.QtWidgets import QFileDialog
 from app.ui.dialogs import JumpToPageDialog
@@ -53,9 +54,11 @@ class EventHandler:
 
         # --- ページ移動 ---
         if key in [Qt.Key.Key_Left, Qt.Key.Key_Right]:
+            direction = 1 if key == Qt.Key.Key_Right else -1
             if modifiers == Qt.KeyboardModifier.ShiftModifier:
-                direction = 1 if key == Qt.Key.Key_Right else -1
-                self._navigate_single_page(direction)
+                self._navigate_folder(direction)
+            elif modifiers == Qt.KeyboardModifier.ControlModifier:
+                self.navigate_single_page(direction)
             else:
                 self.navigate_pages(key)
             return
@@ -106,10 +109,20 @@ class EventHandler:
         page_step = 2 if self.app_state.is_spread_view else 1
         
         if self.app_state.is_spread_view and self.app_state.spread_view_first_page_single:
-            if self.app_state.current_page_index == 0 and direction == 1:
-                page_step = 1
-            elif self.app_state.current_page_index == 1 and direction == -1:
-                page_step = 1
+            single_page_indices = set([0] + self.app_state.folder_start_indices)
+            current_index = self.app_state.current_page_index
+            
+            # フォルダの最終ページかどうかを判定
+            is_last_page_of_folder = (current_index + 1) in single_page_indices
+
+            if direction == 1:  # 進む場合
+                # 現在地が単独表示ページか、フォルダの最終ページならステップは1
+                if current_index in single_page_indices or is_last_page_of_folder:
+                    page_step = 1
+            elif direction == -1:  # 戻る場合
+                # 移動先が単独表示ページならステップは1
+                if (current_index - 1) in single_page_indices:
+                    page_step = 1
 
         new_index = self.app_state.current_page_index + (direction * page_step)
 
@@ -124,7 +137,7 @@ class EventHandler:
         if self.app_state.current_page_index != new_index:
             self.app_state.current_page_index = new_index
 
-    def _navigate_single_page(self, direction):
+    def navigate_single_page(self, direction):
         """単一ページの移動を処理する。
         
         Args:
@@ -140,7 +153,38 @@ class EventHandler:
             return
 
         if self.app_state.current_page_index != new_index:
-            self.app_state.current_page_index = new_index
+            self.main_window.controller.jump_to_page(new_index)
+
+    def _navigate_folder(self, direction: int):
+        """フォルダ単位で移動する。
+        
+        Args:
+            direction (int): 移動方向。1で次、-1で前。
+        """
+        if not self.app_state.folder_start_indices:
+            return
+
+        current_index = self.app_state.current_page_index
+        folder_indices = self.app_state.folder_start_indices
+        
+        # 現在のページがどのフォルダに属しているかを探す
+        # bisect_rightは、current_indexがフォルダの先頭だった場合に次のフォルダのインデックスを返す
+        current_folder_pos = bisect.bisect_right(folder_indices, current_index) - 1
+
+        new_folder_pos = current_folder_pos + direction
+
+        # 境界チェック
+        if new_folder_pos < 0:
+            # 最初のフォルダより前には行かない
+            return
+        if new_folder_pos >= len(folder_indices):
+            # 最後のフォルダより後ろには行かない
+            return
+            
+        new_page_index = folder_indices[new_folder_pos]
+        
+        if self.app_state.current_page_index != new_page_index:
+            self.main_window.controller.jump_to_page(new_page_index)
 
     def open_jump_to_page_dialog(self):
         """ページジャンプダイアログを開き、指定されたページに移動する。"""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import typing
 import logging
+import os
 from PySide6.QtCore import Qt, QObject, Slot
 from app.constants import PRIORITY_DISPLAY
 from app.io.loader import FileLoader
@@ -128,7 +129,8 @@ class ApplicationController(QObject):
             # 5. AppStateと自身のfile_loaderを更新
             self.file_loader = loader
             self.app_state.file_loader = loader
-            self.app_state.set_file_list(image_files)
+            folder_indices = self._get_folder_start_indices(image_files)
+            self.app_state.set_file_list(image_files, folder_indices)
             self.app_state.current_page_index = page
 
             # 6. ThreadManagerに新しいFileLoaderを通知
@@ -300,6 +302,10 @@ class ApplicationController(QObject):
             # --- From spread (LTR) to single ---
             self.app_state.is_spread_view = False
         
+        # 設定の変更を即座に保存
+        self.settings_manager.set('is_spread_view', self.app_state.is_spread_view)
+        self.settings_manager.set('binding_direction', self.app_state.binding_direction)
+
         if self.ui_manager:
             self.ui_manager.update_view()
 
@@ -317,3 +323,16 @@ class ApplicationController(QObject):
 
         if self.app_state.current_page_index != page_index:
             self.app_state.current_page_index = page_index
+
+    def _get_folder_start_indices(self, file_list: list[str]) -> list[int]:
+        """
+        ファイルリストから各フォルダの最初のファイルのインデックスを抽出する。
+        """
+        folder_indices = []
+        last_dir = None
+        for i, file_path in enumerate(file_list):
+            current_dir = os.path.dirname(file_path)
+            if current_dir != last_dir:
+                folder_indices.append(i)
+                last_dir = current_dir
+        return folder_indices

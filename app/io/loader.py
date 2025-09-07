@@ -1,5 +1,6 @@
 import os
 import io
+import re
 from collections import deque
 import threading
 import logging
@@ -26,6 +27,10 @@ def get_next_file_loader_id():
     with _loader_id_lock:
         _file_loader_id_counter += 1
         return _file_loader_id_counter
+
+def natural_sort_key(s):
+    """自然順ソート用のキーを生成する。"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
 
 # --- Load Task Definition ---
 @dataclass(order=True)
@@ -152,9 +157,14 @@ class FileLoader(QObject):
     def _create_image_list(self):
         image_list = []
         if self.load_type == 'folder':
-            for filename in sorted(os.listdir(self.path)):
-                if os.path.splitext(filename)[1].lower() in SUPPORTED_FORMATS:
-                    image_list.append(os.path.join(self.path, filename))
+            try:
+                filenames = os.listdir(self.path)
+                sorted_filenames = sorted(filenames, key=natural_sort_key)
+                for filename in sorted_filenames:
+                    if os.path.splitext(filename)[1].lower() in SUPPORTED_FORMATS:
+                        image_list.append(os.path.join(self.path, filename))
+            except Exception as e:
+                log.error(f"Error reading or sorting directory {self.path}: {e}")
         elif self.load_type == 'image':
             image_list.append(self.path)
         elif self.load_type == 'archive':
@@ -182,6 +192,12 @@ class FileLoader(QObject):
 
     def get_image_list(self):
         return self.image_list
+
+    def get_file_path(self, index: int) -> str | None:
+        """指定されたインデックスのファイルパス（または書庫内のファイル名）を取得します。"""
+        if 0 <= index < len(self.image_list):
+            return self.image_list[index]
+        return None
 
     def get_image_data(self, filepath, priority=PRIORITY_DISPLAY):
         self.cache_lock.lock()

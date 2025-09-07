@@ -22,8 +22,8 @@
     "resampling_mode_gl": "GL_QUINTIC",
     "resampling_mode_dx": "DX_NEAREST",
     "show_advanced_cache_options": true,
-    "max_cache_size_mb": 64,
-    "cpu_max_prefetch_pages": 1,
-    "gpu_max_prefetch_pages": 1,
+    "max_cache_size_mb": 4096,
+    "cpu_max_prefetch_pages": 10,
+    "gpu_max_prefetch_pages": 9,
     "show_status_bar_info": false
 }

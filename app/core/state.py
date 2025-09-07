@@ -15,6 +15,7 @@ class AppState(QObject):
         self.file_loader = None
         self.image_loader = None
         self.image_files = []
+        self.folder_start_indices = []
         self.total_pages = 0
         self.is_content_loaded = False
         self._current_page_index = 0
@@ -51,12 +52,13 @@ class AppState(QObject):
     def set_image_loader(self, loader):
         self.image_loader = loader
 
-    def set_file_list(self, file_list):
+    def set_file_list(self, file_list, folder_indices):
         self.image_files = file_list
+        self.folder_start_indices = folder_indices
         self.total_pages = len(file_list)
         self.is_content_loaded = bool(file_list)
         self.file_list_changed.emit()
-        logging.info(f"[State] File list set with {self.total_pages} files.")
+        logging.info(f"[State] File list set with {self.total_pages} files and {len(folder_indices)} folders.")
 
     def reset(self):
         self.current_page_index = 0

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
+import os
 import cv2
+import bisect
 from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QTimer, QMetaObject, Signal, Slot
 from PySide6.QtGui import QImage
@@ -65,6 +67,7 @@ class UIManager(QObject):
         """コンテンツの読み込みが完了したときに呼び出されるスロット。"""
         self.on_file_list_changed()
         self.main_window.update_seek_widget_state()
+        self.update_window_title()
 
     def _on_page_index_changed(self, index: int, is_spread: bool):
         """ページインデックスが変更されたときに呼び出されるスロット。"""
@@ -150,6 +153,7 @@ class UIManager(QObject):
         indices = self._get_page_indices_to_display()
         logging.debug(f"[DEBUG_HAYATE] UIManager.update_view called. Displaying indices: {indices}")
         self.update_status_bar()
+        self.update_window_title()
         if not self.app_state.is_content_loaded or not self.file_loader:
             # コンテンツがロードされていない場合はビューをクリア
             if hasattr(self.main_window.view, 'displayImage'):
@@ -217,48 +221,39 @@ class UIManager(QObject):
         if not (0 <= current_index < total_pages):
             return []
 
-        # 2. 単ページ表示モードの処理 (要件1)
+        # 2. 単ページ表示モードの処理
         if not self.app_state.is_spread_view:
             return [current_index]
 
         # --- ここから下は見開き表示モードのロジック ---
 
         is_first_page_single = self.app_state.spread_view_first_page_single
-
-        # 3. 最初のページが単独表示される特別ケース (要件3)
-        if is_first_page_single and current_index == 0:
-            return [0]
-
-        # 4. 見開きペアの計算 (要件2)
-        # 「最初のページを単独表示」が有効な場合、ページのナンバリングが1つずれると考える。
-        # このオフセットを考慮して、ペア計算の基準となるインデックスを調整する。
-        offset = 1 if is_first_page_single else 0
+        folder_start_indices = self.app_state.folder_start_indices
         
-        # current_indexがどのペアに属するかを計算する。
-        # 調整済みインデックスを2で割ることで、ペアの最初のページを特定する。
-        # 例 (offset=1): current_index=1,2 -> adj=0,1 -> start=1
-        # 例 (offset=0): current_index=0,1 -> adj=0,1 -> start=0
-        adjusted_index = current_index - offset
-        if adjusted_index < 0: # current_index=0 かつ offset=1 のケース
-            # このケースは要件3で処理済みだが、念のため。
-            return [0]
-
-        start_of_pair = (adjusted_index // 2) * 2 + offset
-        page1 = start_of_pair
-        page2 = start_of_pair + 1
-
-        # 5. 最後のページが単独表示されるケース (要件4)
-        if page2 >= total_pages:
+        # 単独表示されるページのインデックスリストを作成
+        single_page_indices = set()
+        if is_first_page_single:
+            single_page_indices.add(0)
+            single_page_indices.update(folder_start_indices)
+        
+        # 3. 現在のページが単独表示ページの場合
+        if current_index in single_page_indices:
             return [current_index]
 
-        # 6. 綴じ方向の適用 (要件5)
-        # Viewは渡されたリストの0番目を左、1番目を右のページとして描画することを想定している。
+        # 4. 見開きペアの計算（新ロジック）
+        # current_indexを基準にペアを形成する
+        page1 = current_index
+        page2 = current_index + 1
+
+        # 5. 最後のページとフォルダ境界のチェック
+        if page2 >= total_pages or page2 in single_page_indices:
+            return [current_index]
+
+        # 6. 綴じ方向の適用
         if self.app_state.binding_direction == 'right':
-            # 右綴じの場合、左側に大きいインデックス(page2)、右側に小さいインデックス(page1)が来る
-            return [page2, page1]
+            return [page2, page1]  # 右綴じ: [2, 1], [4, 3] ...
         else:
-            # 左綴じの場合、左側に小さいインデックス(page1)、右側に大きいインデックス(page2)が来る
-            return [page1, page2]
+            return [page1, page2]  # 左綴じ: [1, 2], [3, 4] ...
 
     def handle_image_loaded(self, image, page_index):
         """
@@ -288,19 +283,35 @@ class UIManager(QObject):
 
         # --- ページ情報と表示モード ---
         total_pages = self.app_state.total_pages
-        current_page_num = self.app_state.current_page_index + 1
-        
+        current_index = self.app_state.current_page_index
+        current_page_num = current_index + 1
+        folder_indices = self.app_state.folder_start_indices
+
+        folder_info_str = ""
+        if folder_indices and len(folder_indices) > 1:
+            current_folder_idx = -1
+            for i, start_idx in enumerate(folder_indices):
+                if current_index >= start_idx:
+                    current_folder_idx = i
+                else:
+                    break
+            
+            if current_folder_idx != -1:
+                folder_start_page = folder_indices[current_folder_idx]
+                folder_end_page = folder_indices[current_folder_idx + 1] if current_folder_idx + 1 < len(folder_indices) else total_pages
+                pages_in_folder = folder_end_page - folder_start_page
+                current_page_in_folder = current_index - folder_start_page + 1
+                folder_info_str = f" (Folder {current_folder_idx + 1}: {current_page_in_folder}/{pages_in_folder})"
+
         if self.app_state.is_spread_view:
-            is_first_page_single = self.app_state.spread_view_first_page_single and self.app_state.current_page_index == 0
-            page_str = f"{current_page_num}"
-            if self.app_state.current_page_index + 1 < total_pages and not is_first_page_single:
-                page_str += f"-{current_page_num + 1}"
-            self.main_window.page_info_label.setText(f"Page: {page_str} / {total_pages}")
+            indices_to_display = self._get_page_indices_to_display()
+            page_str = "-".join(map(lambda x: str(x + 1), indices_to_display))
+            self.main_window.page_info_label.setText(f"Page: {page_str} / {total_pages}{folder_info_str}")
             
             binding_str = "右綴じ" if self.app_state.binding_direction == 'right' else "左綴じ"
             self.main_window.view_mode_label.setText(f"View: 見開き ({binding_str})")
         else:
-            self.main_window.page_info_label.setText(f"Page: {current_page_num} / {total_pages}")
+            self.main_window.page_info_label.setText(f"Page: {current_page_num} / {total_pages}{folder_info_str}")
             self.main_window.view_mode_label.setText("View: 単ページ")
 
         # --- レンダリングバックエンド ---
@@ -388,8 +399,38 @@ class UIManager(QObject):
 
     def update_window_title(self) -> None:
         """ウィンドウのタイトルを更新します。"""
-        # TODO: Implement window title update logic
-        pass
+        if not self.app_state.is_content_loaded or not self.file_loader:
+            self.main_window.setWindowTitle("Project Hayate - 高速漫画ビューア")
+            return
+
+        try:
+            base_name = os.path.basename(self.file_loader.path)
+            indices = self._get_page_indices_to_display()
+            
+            file_names = []
+            for index in indices:
+                try:
+                    file_path = self.file_loader.get_file_path(index)
+                    if file_path:
+                        file_names.append(os.path.basename(file_path))
+                except IndexError:
+                    logging.warning(f"Index {index} is out of range for file list.")
+            
+            if not file_names:
+                title = f"{base_name} - Project Hayate"
+            else:
+                file_names_str = " - ".join(file_names)
+                title = f"{base_name} ({file_names_str}) - Project Hayate"
+
+            self.main_window.setWindowTitle(title)
+
+        except Exception as e:
+            logging.warning(f"Could not update window title: {e}", exc_info=True)
+            # フォールバック
+            if self.file_loader:
+                base_name = os.path.basename(self.file_loader.path)
+                title = f"{base_name} - Project Hayate"
+                self.main_window.setWindowTitle(title)
 
     def zoom_in(self):
         if self.main_window.view:

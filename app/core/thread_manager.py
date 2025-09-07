@@ -168,7 +168,8 @@ class ThreadManager(QObject):
 
         self.extraction_thread = ExtractionThread(
             reader=loader.reader,
-            file_list=loader.get_image_list(),
+            file_list=self.app_state.image_files,
+            folder_indices=self.app_state.folder_start_indices,
             cache=loader.cache,
             cache_lock=loader.cache_lock,
             cache_wait_condition=loader.cache_wait_condition

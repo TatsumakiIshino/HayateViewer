@@ -30,7 +30,16 @@ def main():
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     app = QApplication(sys.argv)
 
-    settings_manager = Settings()
+    if getattr(sys, 'frozen', False):
+        # PyInstallerでビルドされた実行可能ファイルの場合
+        base_path = os.path.dirname(sys.executable)
+    else:
+        # 通常のPythonスクリプトとして実行された場合
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    
+    config_path = os.path.join(base_path, 'config.json')
+
+    settings_manager = Settings(config_path)
     app_state = AppState(settings_manager)
 
     # ApplicationControllerがアプリケーションのライフサイクルを管理する

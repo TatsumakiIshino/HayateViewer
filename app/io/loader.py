@@ -121,9 +121,9 @@ class FileLoader(QObject):
         self.archive_data: io.BytesIO | None = None
 
         if self.load_type == 'archive':
-            # For RAR files, we need the file path, not in-memory data.
+            # For RAR and 7z files, we need the file path, not in-memory data.
             ext = os.path.splitext(self.path)[1].lower()
-            if ext not in ['.rar', '.cbr']:
+            if ext in ['.zip', '.cbz']:
                 try:
                     with open(self.path, 'rb') as f:
                         self.archive_data = io.BytesIO(f.read())
@@ -176,9 +176,7 @@ class FileLoader(QObject):
                     self.archive_data.seek(0)
                     self.reader = ZipReader(self.archive_data)
                 elif ext in ['.7z', '.cb7']:
-                    if not self.archive_data: return []
-                    self.archive_data.seek(0)
-                    self.reader = SevenZipReader(self.archive_data)
+                    self.reader = SevenZipReader(self.path)
                 elif ext in ['.rar', '.cbr']:
                     self.reader = RarReader(self.path)
                 else:

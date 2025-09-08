@@ -99,17 +99,18 @@ class MemoryWriterFactory(py7zr.WriterFactory):
 class SevenZipReader(IArchiveReader):
     """
     7Z書庫を読み込むためのIArchiveReader実装。
-    オンデマンドでファイルを読み込みます。
+    ディスク上のファイルを直接読み込みます。
     """
 
-    def __init__(self, file_like_object):
+    def __init__(self, file_path: str):
         """
         SevenZipReaderを初期化します。
 
         Args:
-            file_like_object: 7Z書庫のファイルライクオブジェクト。
+            file_path: 7Z書庫へのファイルパス。
         """
-        super().__init__(file_like_object)
+        super().__init__(file_path)
+        self.file_path = file_path
         self._all_files = None  # ファイルリストは初回取得時にキャッシュする
 
     def get_filelist(self) -> list[str]:
@@ -117,8 +118,12 @@ class SevenZipReader(IArchiveReader):
         書庫内のサポートされている画像ファイル名のリストを取得します。
         """
         if self._all_files is None:
-            with py7zr.SevenZipFile(self.file_like_object, 'r') as archive:
-                self._all_files = archive.getnames()
+            try:
+                with py7zr.SevenZipFile(self.file_path, 'r') as archive:
+                    self._all_files = archive.getnames()
+            except Exception as e:
+                log.error(f"Failed to get filelist from 7z archive '{self.file_path}': {e}")
+                self._all_files = []
 
         supported_files = [
             f for f in self._all_files
@@ -132,8 +137,7 @@ class SevenZipReader(IArchiveReader):
         py7zrのextractメソッドとカスタムファクトリを使用して、メモリに展開します。
         """
         try:
-            self.file_like_object.seek(0)
-            with py7zr.SevenZipFile(self.file_like_object, 'r') as archive:
+            with py7zr.SevenZipFile(self.file_path, 'r') as archive:
                 factory = MemoryWriterFactory()
                 archive.extract(targets=[name], factory=factory)
                 if name in factory.files:
@@ -280,36 +284,39 @@ class ExtractionThread(QThread):
             start_page = self.folder_indices[target_folder_idx]
             end_page = self.folder_indices[target_folder_idx + 1] if target_folder_idx + 1 < len(self.folder_indices) else self.total_files
             
-            files_in_folder = self.file_list[start_page:end_page]
+            unextracted_pages_in_folder = list(range(start_page, end_page))
             
-            for target_file in files_in_folder:
-                if not self._running:
-                    break
+            while self._running and unextracted_pages_in_folder:
+                current_page = self._get_current_page()
+                
+                # フォルダ内の未展開ページから、現在地に最も近いものを選択
+                target_page_idx = min(unextracted_pages_in_folder, key=lambda p: (abs(p - current_page), p))
+                target_file = self.file_list[target_page_idx]
 
                 self.cache_lock.lock()
                 is_cached = target_file in self.cache
                 self.cache_lock.unlock()
 
-                if is_cached:
-                    continue
+                if not is_cached:
+                    try:
+                        data = self.reader.read_file(target_file)
+                        if data:
+                            self.cache_lock.lock()
+                            try:
+                                self.cache[target_file] = data
+                                if not first_file_emitted:
+                                    self.first_file_extracted.emit(target_file)
+                                    first_file_emitted = True
+                                
+                                data_size_mb = len(data) / (1024 * 1024)
+                                log.info(f"[Extraction] Cached: {target_file} ({data_size_mb:.2f} MB)")
+                            finally:
+                                self.cache_lock.unlock()
+                            self.cache_wait_condition.wakeAll()
+                    except Exception as e:
+                        log.error(f"Failed to extract {target_file}: {e}", exc_info=True)
 
-                try:
-                    data = self.reader.read_file(target_file)
-                    if data:
-                        self.cache_lock.lock()
-                        try:
-                            self.cache[target_file] = data
-                            if not first_file_emitted:
-                                self.first_file_extracted.emit(target_file)
-                                first_file_emitted = True
-                            
-                            data_size_mb = len(data) / (1024 * 1024)
-                            log.info(f"[Extraction] Cached: {target_file} ({data_size_mb:.2f} MB)")
-                        finally:
-                            self.cache_lock.unlock()
-                        self.cache_wait_condition.wakeAll()
-                except Exception as e:
-                    log.error(f"Failed to extract {target_file}: {e}", exc_info=True)
+                unextracted_pages_in_folder.remove(target_page_idx)
 
             if not self._running:
                 break
@@ -317,7 +324,8 @@ class ExtractionThread(QThread):
             if target_folder_idx in self.unextracted_folders:
                 self.unextracted_folders.remove(target_folder_idx)
 
-            extracted_count += len(files_in_folder)
+            # フォルダ全体のファイル数を加算
+            extracted_count += (end_page - start_page)
             self.progress.emit(extracted_count, self.total_files)
 
         if not self._running:

@@ -22,6 +22,8 @@ HayateViewerは、快適な画像閲覧体験を提供するために開発さ�
 *   **キーボード:**
     *   `→` : 次のページ
     *   `←` : 前のページ
+    *   `Ctrl` + `→`/`←`: 見開き表示時でも1ページずつ強制的に移動します。
+    *   `Shift` + `→`/`←`: フォルダ単位で前後に移動します。
     *   `Home`: 最初のページ
     *   `End`: 最後のページ
 *   **ページジャンプ:**
@@ -36,10 +38,10 @@ HayateViewerは、快適な画像閲覧体験を提供するために開発さ�
 |:---|:---|
 | `+` / `=` | 拡大 |
 | `-` | 縮小 |
-| `0` / `R` | ズームをリセット（全体表示） |
-| `F` | 見開き表示のON/OFF |
-| `B` | 綴じ方向の切り替え（左綴じ/右綴じ） |
+| `*` | ズームをリセット（全体表示） |
+| `B` | 表示モードの切り替え（単一ページ → 右綴じ見開き → 左綴じ見開き） |
 | `ALT+ENTER` | フルスクリーン表示のON/OFF |
+| `ESC` | フルスクリーン表示を解除 |
 | `Q` | アプリケーションを終了 |
 | `F1` | バージョン情報を表示 |
 | `O` | オプション画面を開きます。 |
@@ -57,12 +59,12 @@ HayateViewerの動作は、`config.json`というファイルを編集するこ�
 
 | 設定項目 | 説明 | デフォルト値 |
 |:---|:---|:---|
-| `rendering_backend` | 描画エンジンを選択します。`"opengl"` はGPUを利用し高速・高画質です。`"pyside6_mt"` はCPUで描画し、互換性が高いです。 | `"pyside6_mt"` |
-| `is_spread_view` | `true`で見開き表示、`false`で単一ページ表示になります。 | `true` |
-| `binding_direction` | ページの綴じ方向を `left` (左綴じ) または `right` (右綴じ) で指定します。 | `"left"` |
-| `spread_view_first_page_single` | 見開き表示のとき、1ページ目を単独で表示するかどうか。日本の漫画など、表紙を単独表示したい場合に `true` にします。 | `true` |
-| `resampling_mode_gl` | `opengl`利用時の画質を選択します。<br>`"GL_NEAREST"`, `"GL_BILINEAR"`, `"GL_LANCZOS3"`, `"GL_LANCZOS4"`, `"GL_QUINTIC"` | `"GL_QUINTIC"` |
-| `resampling_mode_cpu` | `pyside6_mt`利用時の画質を選択します。<br>`"PIL_NEAREST"`, `"PIL_BILINEAR"`, `"PIL_BICUBIC"`, `"PIL_LANCZOS"`, `"SKIMAGE_ORDER_0"` から `_5` まで | `"SKIMAGE_ORDER_5"` |
+| `rendering_backend` | 描画エンジンを選択します。`"opengl"` はGPUを利用し高速・高画質です。`"pyside6_mt"` はCPUで描画し、互換性が高いです。`"pyside6"`という選択肢もあります。 | `"pyside6_mt"` |
+| `is_spread_view` | `true`で見開き表示、`false`で単一ページ表示になります。（`B`キーで動的に変更可能） | `true` |
+| `binding_direction` | ページの綴じ方向を `left` (左綴じ) または `right` (右綴じ) で指定します。（`B`キーで動的に変更可能） | `"left"` |
+| `spread_view_first_page_single` | 見開き表示のとき、1ページ目を単独で表示するかどうか。表紙を単独表示したい場合に `true` にします。 | `true` |
+| `resampling_mode_gl` | `opengl`利用時の画質を選択します。<br>`"GL_NEAREST"`, `"GL_BILINEAR"`, `"GL_LANCZOS3"`, `"GL_LANCZOS4"`, `"GL_QUINTIC"` | `"GL_LANCZOS3"` |
+| `resampling_mode_cpu` | `pyside6_mt`利用時の画質を選択します。<br>`"PIL_NEAREST"`, `"PIL_BILINEAR"`, `"PIL_BICUBIC"`, `"PIL_LANCZOS"`, `"SKIMAGE_ORDER_0"` から `_5` まで | `"PIL_LANCZOS"` |
 | `max_cache_size_mb` | 画像を一時的に保存しておくメモリ（CPUキャッシュ）の最大サイズをMB単位で指定します。 | `4096` |
 | `cpu_max_prefetch_pages` | 次に表示する可能性のあるページを、何ページ先まで事前に読み込んでおくかを指定します。 | `10` |
 | `gpu_max_prefetch_pages` | `opengl`利用時に、GPUメモリに事前にテクスチャを準備しておくページ数を指定します。 | `9` |

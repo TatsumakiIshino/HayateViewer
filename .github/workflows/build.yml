@@ -21,7 +21,7 @@ jobs:
         pip install -r requirements.txt
     - name: Build with PyInstaller
       run: |
-        pyinstaller main.py --onefile --noconsole --name HayateViewer-Windows
+        pyinstaller main.py --onefile --noconsole --name HayateViewer-Windows --add-data "app/shaders;app/shaders"
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
@@ -43,7 +43,7 @@ jobs:
         pip install -r requirements.txt
     - name: Build with PyInstaller
       run: |
-        pyinstaller main.py --onefile --noconsole --name HayateViewer-macOS
+        pyinstaller main.py --onefile --noconsole --name HayateViewer-macOS --add-data "app/shaders:app/shaders"
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:

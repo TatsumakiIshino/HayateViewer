@@ -66,7 +66,7 @@ jobs:
         name: HayateViewer-macOS
         path: dist/HayateViewer-macOS*
 
-  release:
+  upload-artifacts:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -81,9 +81,26 @@ jobs:
         with:
           name: HayateViewer-macOS
           path: dist/macos
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-assets
+          path: |
             dist/windows/*
             dist/macos/*
+
+  release:
+    needs: upload-artifacts
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          generate_release_notes: true

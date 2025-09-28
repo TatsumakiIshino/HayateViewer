@@ -1,0 +1,30 @@
+name-template: 'HayateViewer $NEXT_PATCH_VERSION'
+tag-template: 'v$NEXT_PATCH_VERSION'
+categories:
+  - title: '🚀 新機能'
+    labels:
+      - 'feature'
+      - 'feat'
+  - title: '🐛 修正'
+    labels:
+      - 'fix'
+      - 'bugfix'
+  - title: '📈 改善'
+    labels:
+      - 'enhancement'
+      - 'perf'
+  - title: '📝 ドキュメント'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '🔨 その他'
+    labels:
+      - 'chore'
+      - 'ci'
+      - 'build'
+      - 'refactor'
+      - 'style'
+      - 'test'
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+template: |
+  $CHANGES

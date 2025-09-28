@@ -701,6 +701,11 @@ class OpenGLView(QOpenGLWidget):
             return
 
         key = f"{self.app_state.file_loader.path}::{page_number}"
+
+        # texture_cacheがまだ初期化されていない場合は処理をスキップ
+        if not hasattr(self, 'texture_cache'):
+            logging.warning(f"[OpenGLView] texture_cache not initialized yet for page {page_number}. Skipping on_page_cached.")
+            return
         
         if key in self.texture_cache or key in self.prepare_queue:
             return # 既に処理中またはキャッシュ済み

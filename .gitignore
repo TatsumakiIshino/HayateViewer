@@ -1,17 +1,39 @@
-/.roo
-/.serena
-/.venv
-/activate.bat
-/roocode_manual.md
+# Created by venv; see https://docs.python.org/3/library/venv.html
+# Python
 __pycache__/
-*.spec
-build/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-wheel-metadata/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+htmlcov/
+.hypothesis/
+.pytest_cache/
+
+# Distribution / packaging
+.eggs/
+*.egg-info/
 dist/
 .vscode/
 unrar.dll
-*.pyc
-.roo.zip
 HayateViewer_0.4.0.7z
 HayateViewer_0.4.0/
 release_notes.md
 config.json
+build/
+*.whl
+*.zip
+
+# PyInstaller
+*.spec
+
+# OS generated files
+.DS_Store

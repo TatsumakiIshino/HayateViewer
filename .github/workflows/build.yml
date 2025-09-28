@@ -3,6 +3,7 @@ name: Build with PyInstaller
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-windows:
@@ -22,7 +23,7 @@ jobs:
       run: |
         pyinstaller main.py --onefile --noconsole --name HayateViewer-Windows
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: HayateViewer-Windows
         path: dist/HayateViewer-Windows.exe
@@ -44,7 +45,7 @@ jobs:
       run: |
         pyinstaller main.py --onefile --noconsole --name HayateViewer-macOS
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: HayateViewer-macOS
         path: dist/HayateViewer-macOS

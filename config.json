@@ -1,7 +1,7 @@
 {
-    "rendering_backend": "opengl",
+    "rendering_backend": "pyside6_mt",
     "is_spread_view": true,
-    "binding_direction": "left",
+    "binding_direction": "right",
     "spread_view_first_page_single": true,
     "window_size": [
         1280,
@@ -13,7 +13,7 @@
     ],
     "window_geometry": [
         417,
-        349,
+        186,
         1280,
         768
     ],

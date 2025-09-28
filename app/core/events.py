@@ -19,6 +19,7 @@ class EventHandler:
     def handle_key_press(self, event):
         key = event.key()
         modifiers = event.modifiers()
+        logging.debug(f"Key pressed: {key} ({Qt.Key(key).name}), Modifiers: {modifiers}")
 
         # --- アプリケーション操作 ---
         if key == Qt.Key.Key_O:
@@ -57,7 +58,7 @@ class EventHandler:
             direction = 1 if key == Qt.Key.Key_Right else -1
             if modifiers == Qt.KeyboardModifier.ShiftModifier:
                 self._navigate_folder(direction)
-            elif modifiers == Qt.KeyboardModifier.ControlModifier:
+            elif modifiers & Qt.KeyboardModifier.ControlModifier or modifiers & Qt.KeyboardModifier.MetaModifier:
                 self.navigate_single_page(direction)
             else:
                 self.navigate_pages(key)

@@ -1,12 +1,33 @@
-/.roo
-/.serena
-/.venv
-/activate.bat
-/roocode_manual.md
+# Created by venv; see https://docs.python.org/3/library/venv.html
+# Python
 __pycache__/
-*.spec
-build/
-dist/
-.vscode/
-unrar.dll
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-wheel-metadata/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+htmlcov/
+.hypothesis/
+.pytest_cache/
+
+# Distribution / packaging
+.eggs/
+*.egg-info/
+dist/
+build/
+*.whl
+*.zip
+
+# PyInstaller
+*.spec
+
+# OS generated files
+.DS_Store

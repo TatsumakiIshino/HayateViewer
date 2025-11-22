@@ -40,6 +40,56 @@ jobs:
   build-macos:
     runs-on: macos-latest
 
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.13
+    - name: Install macOS dependencies
+      run: |
+        brew install create-dmg
+        brew tap carlocab/personal
+        brew install unrar
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Build with PyInstaller
+      run: |
+        # Set library path for unrar
+        export UNRAR_LIB_PATH=$(brew --prefix unrar)/lib/libunrar.dylib
+        export DYLD_LIBRARY_PATH=$(brew --prefix unrar)/lib:$DYLD_LIBRARY_PATH
+        echo "UNRAR_LIB_PATH=$UNRAR_LIB_PATH"
+        pyinstaller HayateViewer-macOS.spec --clean --noconfirm
+    - name: Create DMG
+      run: |
+        create-dmg \
+          --volname "HayateViewer" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "HayateViewer.app" 175 120 \
+          --hide-extension "HayateViewer.app" \
+          --app-drop-link 425 120 \
+          "dist/HayateViewer-macOS.dmg" \
+          "dist/HayateViewer.app" || echo "DMG creation failed"
+        
+        # Debug: List files in dist
+        ls -R dist/
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: HayateViewer-macOS
+        path: |
+          dist/HayateViewer.app
+          dist/HayateViewer-macOS.dmg
+
+  upload-artifacts:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:

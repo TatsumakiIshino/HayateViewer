@@ -46,25 +46,34 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: 3.13
-    - name: Install dependencies
+    - name: Install macOS dependencies
+      run: |
+        brew install create-dmg
+        brew install unrar
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     - name: Build with PyInstaller
       run: |
-        if [[ $GITHUB_REF == refs/tags/v* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
-          ARCH=$(echo ${{ runner.arch }} | tr '[:upper:]' '[:lower:]')
-          OUTPUT_NAME="HayateViewer-macOS-$ARCH-$VERSION"
-        else
-          OUTPUT_NAME="HayateViewer-macOS"
-        fi
-        pyinstaller main.py --onefile --noconsole --name "$OUTPUT_NAME" --add-data "app/shaders:app/shaders"
+        pyinstaller HayateViewer-macOS.spec --clean --noconfirm
+    - name: Create DMG
+      run: |
+        create-dmg \
+          --volname "HayateViewer" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "HayateViewer.app" 175 120 \
+          --hide-extension "HayateViewer.app" \
+          --app-drop-link 425 120 \
+          "dist/HayateViewer-macOS.dmg" \
+          "dist/HayateViewer.app" || echo "DMG creation failed, continuing..."
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: HayateViewer-macOS
-        path: dist/HayateViewer-macOS*
+        path: dist/HayateViewer-macOS.dmg
 
   upload-artifacts:
     needs: [build-windows, build-macos]

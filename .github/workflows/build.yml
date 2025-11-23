@@ -1,3 +1,15 @@
+name: Build with PyInstaller
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python 3.13
@@ -102,6 +114,7 @@
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v3
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
@@ -111,4 +124,4 @@
         uses: softprops/action-gh-release@v1
         with:
           files: release-assets/*
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md

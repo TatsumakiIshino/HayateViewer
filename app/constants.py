@@ -38,3 +38,6 @@ RESTART_CODE = 1000
 # 読み込み優先度
 PRIORITY_DISPLAY = 1
 PRIORITY_PREFETCH = 10
+
+# アプリケーションバージョン
+APP_VERSION = "0.5.0"

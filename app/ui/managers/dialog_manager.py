@@ -4,6 +4,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QMessageBox
 
 from app.ui.dialogs import SettingsDialog
+from app.constants import APP_VERSION
 
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
@@ -29,7 +30,7 @@ class DialogManager(QObject):
 
     def show_about_dialog(self):
         """バージョン情報ダイアログを表示します。"""
-        version = "0.2.0"
+        version = APP_VERSION
         author = "Tatsumaki.ishino"
         team = "KID Project Team"
         QMessageBox.information(

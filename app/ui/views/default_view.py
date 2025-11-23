@@ -42,6 +42,15 @@ class DefaultGraphicsView(QGraphicsView):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.view_initialized.emit()
 
+    def sizeHint(self):
+        """ウィンドウの自動リサイズを防ぐため、推奨サイズとして親のサイズを返す"""
+        from PySide6.QtCore import QSize
+        # 親ウィジェットのサイズを返すことで、レイアウトマネージャーに
+        # ウィンドウサイズを変更しないよう指示する
+        if self.parentWidget():
+            return self.parentWidget().size()
+        return QSize(800, 600)  # デフォルトサイズ
+
     def displayImage(self, images: list[QImage]):
         logging.debug(f"[DEBUG_HAYATE] DefaultGraphicsView.displayImage called with {len(images)} images.")
         self.scene.clear()

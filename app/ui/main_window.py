@@ -33,6 +33,11 @@ class MainWindow(QMainWindow):
         self.ui_manager = None  # UIManagerは後から設定される
         self.event_handler = None
 
+        # ウィンドウサイズの自動拡張を防ぐためのフラグ
+        self._programmatic_resize = False
+        self._locked_size = None
+        self._is_fullscreen = False  # フルスクリーン状態を明示的に管理
+
         self.init_ui()
         self.setAcceptDrops(True)
 
@@ -56,10 +61,12 @@ class MainWindow(QMainWindow):
         """UIウィジェットの作成とレイアウトを行う。"""
         self.setWindowTitle("Project Hayate - 高速漫画ビューア")
         self.setGeometry(100, 100, 1280, 768)
+        
+        # 初期サイズを記録（resizeEventで使用）
+        self._locked_size = self.size()
 
         # ImageViewerのセットアップ
         self.recreate_view()
-
 
         # ステータスバーのセットアップ
         self.status_bar = QStatusBar()
@@ -71,6 +78,14 @@ class MainWindow(QMainWindow):
         self.resampling_label = QLabel()
         self.cpu_cache_label = QLabel()
         self.gpu_cache_label = QLabel()
+        
+        # ステータスバーのラベルのサイズポリシーを設定
+        # テキストが長くてもウィンドウをリサイズさせないようにする
+        from PySide6.QtWidgets import QSizePolicy
+        for label in [self.page_info_label, self.view_mode_label, self.rendering_backend_label,
+                      self.resampling_label, self.cpu_cache_label, self.gpu_cache_label]:
+            # 水平方向：コンテンツに応じて伸縮するが、ウィンドウサイズは変更しない
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         self.status_bar.addWidget(self.page_info_label)
         self.status_bar.addWidget(self.view_mode_label)
@@ -105,6 +120,16 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event: QResizeEvent):
         """ウィンドウリサイズイベント。"""
+        # フルスクリーンのときはサイズ固定処理をスキップ
+        if not self._is_fullscreen:
+            # ユーザーによる手動リサイズの場合、min/maxサイズを更新して新しいサイズに固定
+            if not self._programmatic_resize and event.spontaneous():
+                new_size = event.size()
+                self._locked_size = new_size
+                # 新しいサイズでウィンドウサイズを固定
+                self.setMinimumSize(new_size)
+                self.setMaximumSize(new_size)
+        
         super().resizeEvent(event)
         if self.app_state.is_content_loaded and self.ui_manager:
             self.ui_manager.update_view()
@@ -235,10 +260,62 @@ class MainWindow(QMainWindow):
             self.ui_manager.zoom_reset()
 
     def toggle_fullscreen(self):
-        if self.isFullScreen():
-            self.showNormal()
+        """フルスクリーン表示の切り替え。ウインドウサイズと位置を保存・復元する。"""
+        logging.info(f"[FULLSCREEN] Toggle called. Current _is_fullscreen: {self._is_fullscreen}, isFullScreen(): {self.isFullScreen()}")
+        logging.info(f"[FULLSCREEN] Current size: {self.size()}, minimumSize: {self.minimumSize()}, maximumSize: {self.maximumSize()}")
+        
+        if self._is_fullscreen:
+            # フルスクリーンから通常表示に戻す
+            self._is_fullscreen = False
+            logging.info("[FULLSCREEN] Exiting fullscreen mode")
+            
+            # 保存されたジオメトリがある場合は復元
+            if hasattr(self, '_saved_geometry') and self._saved_geometry is not None:
+                logging.info(f"[FULLSCREEN] Restoring saved geometry: {self._saved_geometry}")
+                
+                # まず min/max サイズ制限を解除
+                self.setMinimumSize(0, 0)
+                self.setMaximumSize(16777215, 16777215)
+                logging.info(f"[FULLSCREEN] After unlock - minimumSize: {self.minimumSize()}, maximumSize: {self.maximumSize()}")
+                
+                # 通常表示に切り替え
+                self.showNormal()
+                logging.info(f"[FULLSCREEN] After showNormal - size: {self.size()}")
+                
+                # 保存されたジオメトリを復元
+                self.setGeometry(self._saved_geometry)
+                logging.info(f"[FULLSCREEN] After setGeometry - size: {self.size()}")
+                
+                # 復元したサイズでウィンドウを固定（ページめくり時の自動拡張を防ぐため）
+                # ただし、次回のフルスクリーン切り替えのために、この制限は通常表示のときだけ有効
+                restored_size = self._saved_geometry.size()
+                self._locked_size = restored_size
+                self.setMinimumSize(restored_size)
+                self.setMaximumSize(restored_size)
+                logging.info(f"[FULLSCREEN] Locked to size: {restored_size}")
+            else:
+                # 保存されたジオメトリがない場合は、単純に通常表示に戻す
+                logging.info("[FULLSCREEN] No saved geometry, just showing normal")
+                self.setMinimumSize(0, 0)
+                self.setMaximumSize(16777215, 16777215)
+                self.showNormal()
         else:
+            # 通常表示からフルスクリーンにする
+            self._is_fullscreen = True
+            logging.info("[FULLSCREEN] Entering fullscreen mode")
+            
+            # フルスクリーンにする前に現在のジオメトリを保存
+            self._saved_geometry = self.geometry()
+            logging.info(f"[FULLSCREEN] Saved geometry: {self._saved_geometry}")
+            
+            # min/maxサイズの制限を解除してフルスクリーンを許可
+            self.setMinimumSize(0, 0)
+            self.setMaximumSize(16777215, 16777215)
+            logging.info(f"[FULLSCREEN] Before showFullScreen - minimumSize: {self.minimumSize()}, maximumSize: {self.maximumSize()}")
+            
+            # フルスクリーンに切り替え
             self.showFullScreen()
+            logging.info(f"[FULLSCREEN] After showFullScreen - size: {self.size()}, isFullScreen: {self.isFullScreen()}")
 
     def show_restart_required_message(self):
         """再起動が必要なことをユーザーに通知するダイアログを表示する。"""

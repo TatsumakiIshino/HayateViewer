@@ -39,3 +39,6 @@ shiboken6==6.9.1
 texttable==1.7.0
 tifffile==2025.6.11
 unrar2-cffi==0.4.1
+pytest
+pytest-qt
+pytest-mock

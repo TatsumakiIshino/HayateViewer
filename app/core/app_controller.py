@@ -8,6 +8,7 @@ from app.io.loader import FileLoader
 from app.core.cache import ImageCache
 from app.core.events import EventBus, EventHandler
 from app.core.thread_manager import ThreadManager
+from app.core.services.loader_service import LoaderService
 
 # MainWindowとUIManagerを実行時にインポートする
 from app.ui.main_window import MainWindow
@@ -46,6 +47,9 @@ class ApplicationController(QObject):
         self._is_first_image_ready = False
         self.main_window: typing.Optional[MainWindow] = None
         self.event_handler: typing.Optional[EventHandler] = None
+        
+        # サービスの初期化
+        self.loader_service = LoaderService(self)
 
     def start(self) -> None:
         """
@@ -81,76 +85,9 @@ class ApplicationController(QObject):
     def load_path(self, path: str, page: int = 0) -> None:
         """
         Load a new file or directory path.
-        This method is now responsible for creating a FileLoader and passing it to the ThreadManager.
+        Delegates to LoaderService.
         """
-        logging.info(f"--- STARTING NEW LOAD OPERATION FOR: {path} ---")
-        if self._is_loading:
-            logging.warning(f"Load operation already in progress. Ignoring request for: {path}")
-            return
-
-        self._is_loading = True
-        self._is_first_image_ready = False # 新しい読み込みが開始されたらフラグをリセット
-
-        # 1. 既存のFileLoaderがあれば、安全な削除をスケジュールし、参照をクリア
-        if self.file_loader:
-            logging.info(f"Scheduling previous FileLoader for deletion (id: {id(self.file_loader)})")
-            self.file_loader.deleteLater() # Qtのオブジェクト削除のベストプラクティスに従う
-            self.file_loader = None
-
-        # 2. AppStateの各プロパティをリセット
-        self.app_state.image_files = []
-        self.app_state.total_pages = 0
-        self.app_state.is_content_loaded = False
-        self.app_state.current_page_index = -1 # 無効なインデックスに設定
-        self.app_state.file_loader = None
-        
-        # 3. UIとキャッシュをクリアする
-        logging.debug("[DEBUG_HAYATE] load_path called. Clearing UI, existing image and texture caches.")
-        if self.ui_manager:
-            self.ui_manager.reset_view()
-        self.image_cache.clear()
-        if self.main_window and self.main_window.view.objectName() == 'OpenGL':
-            self.main_window.view.texture_cache.clear()
-        
-        logging.info(f"Attempting to load path: {path}")
-        self.app_state.current_file_path = path
-
-        try:
-            # 4. 新しいFileLoaderをインスタンス化
-            logging.info(f"Creating new FileLoader for path: {path}")
-            loader = FileLoader(path=path, parent=self)
-            image_files = loader.get_image_list()
-
-            if not image_files:
-                logging.warning(f"No images found in: {path}")
-                loader.deleteLater() # ここでも不要になったloaderは削除
-                return
-
-            # 5. AppStateと自身のfile_loaderを更新
-            self.file_loader = loader
-            self.app_state.file_loader = loader
-            folder_indices = self._get_folder_start_indices(image_files)
-            self.app_state.set_file_list(image_files, folder_indices)
-            self.app_state.current_page_index = page
-
-            # 6. ThreadManagerに新しいFileLoaderを通知
-            self.thread_manager.file_loader_updated.emit(loader)
-
-            logging.info(f"Successfully loaded {len(image_files)} images from {path}")
-            logging.info(f"--- FINISHED LOAD OPERATION SETUP FOR: {path} ---")
-
-        except FileNotFoundError:
-            logging.error(f"Error: File or directory not found at '{path}'")
-            if self.ui_manager:
-                self.ui_manager.show_error_dialog(f"ファイルまたはディレクトリが見つかりません。\nパス: {path}")
-        except Exception as e:
-            logging.error(f"An unexpected error occurred while loading '{path}': {e}", exc_info=True)
-            if self.ui_manager:
-                self.ui_manager.show_error_dialog(f"ファイルの読み込み中に予期せぬエラーが発生しました。\n詳細: {e}")
-        finally:
-            self._is_loading = False
-            if self.ui_manager:
-                self.ui_manager.update_view()
+        self.loader_service.load_path(path, page)
 
     def cleanup(self) -> None:
         """
@@ -188,8 +125,8 @@ class ApplicationController(QObject):
                 self.ui_manager.toggle_status_bar_info_visibility()
 
         if 'rendering_backend' in changed_settings:
-            if self.ui_manager and self.ui_manager.main_window:
-                self.ui_manager.main_window.show_restart_required_message()
+            if self.ui_manager:
+                self.ui_manager.dialog_manager.show_restart_required_message()
 
         if 'resampling_mode_cpu' in changed_settings or 'resampling_mode_gl' in changed_settings:
             self.event_bus.RESAMPLING_MODE_CHANGED.emit()
@@ -201,7 +138,8 @@ class ApplicationController(QObject):
         "キャッシュクリアのシグナルを処理する。"
         self.image_cache.clear()
         if self.main_window and self.main_window.view.objectName() == 'OpenGL':
-            self.main_window.view.texture_cache.clear()
+            if hasattr(self.main_window.view, 'texture_cache'):
+                self.main_window.view.texture_cache.clear()
         
         if self.ui_manager:
             self.ui_manager.update_view()
@@ -323,16 +261,3 @@ class ApplicationController(QObject):
 
         if self.app_state.current_page_index != page_index:
             self.app_state.current_page_index = page_index
-
-    def _get_folder_start_indices(self, file_list: list[str]) -> list[int]:
-        """
-        ファイルリストから各フォルダの最初のファイルのインデックスを抽出する。
-        """
-        folder_indices = []
-        last_dir = None
-        for i, file_path in enumerate(file_list):
-            current_dir = os.path.dirname(file_path)
-            if current_dir != last_dir:
-                folder_indices.append(i)
-                last_dir = current_dir
-        return folder_indices

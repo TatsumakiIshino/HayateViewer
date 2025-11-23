@@ -1,5 +1,5 @@
 import logging
-from PySide6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QSizePolicy
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtCore import Signal
 
@@ -20,6 +20,9 @@ class ImageViewer(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
+        
+        # サイズポリシーを設定して、ビューの内容がウィンドウサイズに影響を与えないようにする
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         
         self.current_view.keyPressed.connect(self.keyPressed)
         self.current_view.wheelScrolled.connect(self.wheelScrolled)

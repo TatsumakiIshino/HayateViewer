@@ -1,18 +1,13 @@
 from __future__ import annotations
 import logging
-import os
-import cv2
-import bisect
 from typing import TYPE_CHECKING
-from PySide6.QtCore import QObject, QTimer, QMetaObject, Signal, Slot
-from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QMessageBox
-from PIL import Image as PILImage
+from PySide6.QtCore import QObject, QTimer, Slot, Signal
 
-from app.image.resampler_mt import MultiThreadedImageResampler
-from app.ui.views.default_view import DefaultGraphicsView
 from app.ui.views.opengl_view import OpenGLView
-from app.constants import RESAMPLING_MODES_CPU, RESAMPLING_MODES_GL
+from app.ui.managers.status_bar_manager import StatusBarManager
+from app.ui.managers.title_manager import TitleManager
+from app.ui.managers.view_manager import ViewManager
+from app.ui.managers.dialog_manager import DialogManager
 
 if TYPE_CHECKING:
     from app.core.state import AppState
@@ -21,7 +16,10 @@ if TYPE_CHECKING:
 
 
 class UIManager(QObject):
-    """UIの更新と管理を専門に扱うクラス。"""
+    """
+    UIの更新と管理を専門に扱うクラス。
+    各マネージャー（StatusBar, Title, View, Dialog）へのファサードとして機能する。
+    """
     first_image_ready = Signal()
 
     def __init__(self, main_window: MainWindow, app_state: AppState):
@@ -35,15 +33,18 @@ class UIManager(QObject):
         super().__init__()
         self.main_window = main_window
         self.app_state = app_state
+        
+        # サブマネージャーの初期化
+        self.status_bar_manager = StatusBarManager(main_window, app_state)
+        self.title_manager = TitleManager(main_window, app_state)
+        self.view_manager = ViewManager(main_window, app_state)
+        self.dialog_manager = DialogManager(main_window, main_window.controller)
+
         self.app_state.file_list_changed.connect(self._on_content_loaded)
         self.app_state.page_index_changed.connect(self._on_page_index_changed)
         self.app_state.view_mode_changed.connect(self.update_view)
         self.file_loader: FileLoader | None = None
         self.is_first_image_handled = False
-
-        # リサンプラーの初期化
-        self.resampler = self._create_resampler()
-        self.main_window.controller.event_bus.RESAMPLING_MODE_CHANGED.connect(self.on_resampling_mode_changed)
 
         # キャッシュ変更シグナルを遅延更新メソッドに接続
         self.main_window.controller.image_cache.cache_changed.connect(self._schedule_status_update)
@@ -67,7 +68,7 @@ class UIManager(QObject):
         """コンテンツの読み込みが完了したときに呼び出されるスロット。"""
         self.on_file_list_changed()
         self.main_window.update_seek_widget_state()
-        self.update_window_title()
+        self.title_manager.update_window_title(self._get_page_indices_to_display())
 
     def _on_page_index_changed(self, index: int, is_spread: bool):
         """ページインデックスが変更されたときに呼び出されるスロット。"""
@@ -80,18 +81,17 @@ class UIManager(QObject):
         self.is_first_image_handled = False # 新しいファイルリストでリセット
         if self.file_loader and self.file_loader.load_type != 'archive':
             # 書庫でない場合は、すぐに最初の画像を表示
-            # self.update_view() # AppControllerの新しいロジックで制御されるためコメントアウト
             pass
 
     def handle_first_file_extracted(self, path: str):
         """最初のファイルが展開されたときに呼び出されるスロット。"""
-        self._switch_to_opengl_view()
+        self.view_manager.switch_to_opengl_view()
         if self.main_window.view and hasattr(self.main_window.view, 'update_image'):
             self.main_window.view.update_image(path)
 
     def _schedule_status_update(self):
         """UIの更新を現在のイベントサイクルの直後にスケジュールする。"""
-        QTimer.singleShot(0, self.update_dynamic_status_info)
+        QTimer.singleShot(0, self.status_bar_manager.update_dynamic_status_info)
 
     @Slot(int)
     def on_page_cached(self, page_index: int):
@@ -130,84 +130,14 @@ class UIManager(QObject):
         logging.info(f"[UIManager] Texture prepared for key: {key}. Updating status bar.")
         self.update_status_bar() # 静的情報を更新
 
-    def _switch_to_opengl_view(self):
-        """DefaultGraphicsViewからOpenGLViewに切り替える。"""
-        if isinstance(self.main_window.view, DefaultGraphicsView):
-            new_view = OpenGLView(
-                self.app_state,
-                self.main_window.settings_manager,
-                self.main_window.controller.image_cache,
-                self.main_window
-            )
-            old_view = self.main_window.image_viewer.current_view
-            self.main_window.image_viewer.layout.removeWidget(old_view)
-            old_view.deleteLater()
-            self.main_window.image_viewer.layout.addWidget(new_view)
-            self.main_window.image_viewer.current_view = new_view
-            self.main_window.view = new_view
-            new_view.keyPressed.connect(self.main_window.image_viewer.keyPressed)
-            new_view.wheelScrolled.connect(self.main_window.image_viewer.wheelScrolled)
-
     def update_view(self, *args):
         """AppStateからのシグナルに基づいてビューを更新する。"""
         indices = self._get_page_indices_to_display()
         logging.debug(f"[DEBUG_HAYATE] UIManager.update_view called. Displaying indices: {indices}")
-        self.update_status_bar()
-        self.update_window_title()
-        if not self.app_state.is_content_loaded or not self.file_loader:
-            # コンテンツがロードされていない場合はビューをクリア
-            if hasattr(self.main_window.view, 'displayImage'):
-                self.main_window.view.displayImage([])
-            return
-
-        view = self.main_window.view
-        keys_to_display = [f"{self.file_loader.path}::{index}" for index in indices]
-        logging.info(f"[UIManager.update_view] Updating view with keys: {keys_to_display}")
-
-        # 現在のレンダリングモードに応じて処理を分岐
-        if isinstance(view, OpenGLView):
-            # OpenGLViewはキーのリストを直接受け取る
-            view.displayImage(keys_to_display)
-        elif isinstance(view, DefaultGraphicsView):
-            images = []
-            target_size = view.size()
-
-            for index in indices:
-                np_image = self.main_window.controller.image_cache.get(index)
-                
-                if np_image is not None:
-                    try:
-                        pil_image = PILImage.fromarray(np_image)
-                        
-                        img_w, img_h = pil_image.size
-                        view_w, view_h = target_size.width(), target_size.height()
-                        
-                        if len(indices) == 2:
-                            view_w //= 2
-
-                        if img_w == 0 or img_h == 0: continue
-
-                        aspect_ratio = img_w / img_h
-                        view_aspect_ratio = view_w / view_h if view_h > 0 else 0
-
-                        if view_aspect_ratio > aspect_ratio:
-                            new_h = view_h
-                            new_w = int(new_h * aspect_ratio)
-                        else:
-                            new_w = view_w
-                            new_h = int(new_w / aspect_ratio)
-
-                        if new_w > 0 and new_h > 0:
-                            resized_pil_image = self.resampler.resize(pil_image, (new_w, new_h))
-                            data = resized_pil_image.tobytes("raw", "RGB")
-                            bytes_per_line = resized_pil_image.width * 3
-                            q_image = QImage(data, resized_pil_image.width, resized_pil_image.height, bytes_per_line, QImage.Format.Format_RGB888).rgbSwapped().copy()
-                            images.append(q_image)
-
-                    except Exception as e:
-                        logging.error(f"Failed to resample or convert image for index {index}: {e}", exc_info=True)
-
-            view.displayImage(images)
+        
+        self.status_bar_manager.update_status_bar(indices)
+        self.title_manager.update_window_title(indices)
+        self.view_manager.update_view(indices)
 
     def _get_page_indices_to_display(self) -> list[int]:
         """
@@ -264,203 +194,44 @@ class UIManager(QObject):
         if isinstance(view, OpenGLView):
             # OpenGLViewはon_image_loadedスロットを持つ
             view.on_image_loaded(image, page_index)
-        elif isinstance(view, DefaultGraphicsView):
+        elif hasattr(view, 'displayImage'): # DefaultGraphicsView
             # 非同期で画像が読み込まれた場合、表示中のページに関連するものであれば
             # UI全体を再描画するのが最も確実。
-            # これにより、見開き表示の片方だけが読み込まれた場合でも正しく表示が更新される。
             indices_to_display = self._get_page_indices_to_display()
             if page_index in indices_to_display:
                 self.update_view()
 
     def update_status_bar(self) -> None:
         """静的なステータスバー情報（ページ、モードなど）を更新します。"""
-        if not self.app_state.is_content_loaded:
-            self.main_window.page_info_label.setText("ファイルを開くか、ウィンドウにドロップしてください")
-            self.main_window.view_mode_label.setText("")
-            self.main_window.rendering_backend_label.setText("Backend: -")
-            self.main_window.resampling_label.setText("Resampling: -")
-            return
-
-        # --- ページ情報と表示モード ---
-        total_pages = self.app_state.total_pages
-        current_index = self.app_state.current_page_index
-        current_page_num = current_index + 1
-        folder_indices = self.app_state.folder_start_indices
-
-        folder_info_str = ""
-        if folder_indices and len(folder_indices) > 1:
-            current_folder_idx = -1
-            for i, start_idx in enumerate(folder_indices):
-                if current_index >= start_idx:
-                    current_folder_idx = i
-                else:
-                    break
-            
-            if current_folder_idx != -1:
-                folder_start_page = folder_indices[current_folder_idx]
-                folder_end_page = folder_indices[current_folder_idx + 1] if current_folder_idx + 1 < len(folder_indices) else total_pages
-                pages_in_folder = folder_end_page - folder_start_page
-                current_page_in_folder = current_index - folder_start_page + 1
-                folder_info_str = f" (Folder {current_folder_idx + 1}: {current_page_in_folder}/{pages_in_folder})"
-
-        if self.app_state.is_spread_view:
-            indices_to_display = self._get_page_indices_to_display()
-            page_str = "-".join(map(lambda x: str(x + 1), indices_to_display))
-            self.main_window.page_info_label.setText(f"Page: {page_str} / {total_pages}{folder_info_str}")
-            
-            binding_str = "右綴じ" if self.app_state.binding_direction == 'right' else "左綴じ"
-            self.main_window.view_mode_label.setText(f"View: 見開き ({binding_str})")
-        else:
-            self.main_window.page_info_label.setText(f"Page: {current_page_num} / {total_pages}{folder_info_str}")
-            self.main_window.view_mode_label.setText("View: 単ページ")
-
-        # --- レンダリングバックエンド ---
-        backend = self.main_window.settings_manager.get('rendering_backend')
-        backend_map = {'pyside6': 'PySide6', 'pyside6_mt': 'PySide6 (MT)', 'opengl': 'OpenGL'}
-        display_name = backend_map.get(backend, backend)
-        self.main_window.rendering_backend_label.setText(f"Backend: {display_name}")
-
-        # --- リサンプリング品質 ---
-        if backend == 'opengl':
-            mode_key = self.main_window.settings_manager.get('resampling_mode_gl')
-            mode_name = RESAMPLING_MODES_GL.get(mode_key, "Unknown")
-        else:
-            mode_key = self.main_window.settings_manager.get('resampling_mode_cpu')
-            mode_name = RESAMPLING_MODES_CPU.get(mode_key, "Unknown")
-        self.main_window.resampling_label.setText(f"Resampling: {mode_name}")
+        self.status_bar_manager.update_status_bar(self._get_page_indices_to_display())
 
     def update_dynamic_status_info(self) -> None:
         """動的なステータスバー情報（キャッシュ）をタイマーで更新します。"""
-        if not self.app_state.is_content_loaded:
-            self.main_window.cpu_cache_label.setText("CPU: -")
-            self.main_window.gpu_cache_label.setText("GPU: -")
-            return
-
-        # --- CPUキャッシュ情報 ---
-        cpu_cache = self.main_window.controller.image_cache
-        cpu_pages = cpu_cache.page_count
-        cpu_keys = sorted(list(cpu_cache.cache.keys()))
-        self.main_window.cpu_cache_label.setText(f"CPU: {cpu_pages} pages {cpu_keys}")
-
-        # --- GPUキャッシュ情報 ---
-        if isinstance(self.main_window.view, OpenGLView):
-            gpu_cache = self.main_window.view.texture_cache
-            gpu_pages = gpu_cache.page_count
-            
-            gpu_keys = []
-            if hasattr(gpu_cache, 'lock'):
-                with gpu_cache.lock:
-                    # キーをページインデックスに変換する
-                    raw_keys = list(gpu_cache.cache.keys())
-                    logging.debug(f"[UIManager] Raw GPU keys: {raw_keys}")
-                    for key in raw_keys:
-                        try:
-                            # '::'で分割してページインデックスを取得
-                            page_index_str = key.rsplit('::', 1)[1]
-                            page_index = int(page_index_str)
-                            gpu_keys.append(page_index)
-                        except (ValueError, IndexError) as e:
-                            logging.warning(f"[UIManager] Could not parse GPU cache key: {key}. Error: {e}")
-            
-            gpu_keys.sort()
-            self.main_window.gpu_cache_label.setText(f"GPU: {gpu_pages} pages {gpu_keys}")
-        else:
-            self.main_window.gpu_cache_label.setText("GPU: N/A")
+        self.status_bar_manager.update_dynamic_status_info()
 
     def toggle_status_bar_info_visibility(self):
         """設定に応じてキャッシュ情報ラベルの表示/非表示を切り替えます。"""
-        show = self.main_window.settings_manager.get('show_status_bar_info', True)
-        self.main_window.cpu_cache_label.setVisible(show)
-        
-        is_opengl = self.main_window.settings_manager.get('rendering_backend') == 'opengl'
-        self.main_window.gpu_cache_label.setVisible(show and is_opengl)
-
-        if show:
-            # 表示状態になったら一度更新する
-            self.update_dynamic_status_info()
-
-    def _create_resampler(self) -> MultiThreadedImageResampler:
-        """設定に基づいてCPUリサンプラーを生成する。"""
-        mode = self.main_window.settings_manager.get('resampling_mode_cpu', 'PIL_BILINEAR')
-        workers = self.main_window.settings_manager.get('parallel_decoding_workers', 1)
-        logging.info(f"Creating CPU resampler with mode: {mode}, workers: {workers}")
-        return MultiThreadedImageResampler(mode=mode, max_threads=workers)
-
-    @Slot()
-    def on_resampling_mode_changed(self):
-        """リサンプリングモード変更のイベントハンドラ。"""
-        backend = self.main_window.settings_manager.get('rendering_backend')
-        if backend == 'opengl':
-            return
-        
-        logging.info("CPU resampling mode changed. Re-creating resampler and updating view.")
-        self.resampler = self._create_resampler()
-        self.update_view()
+        self.status_bar_manager.toggle_status_bar_info_visibility()
 
     def update_window_title(self) -> None:
         """ウィンドウのタイトルを更新します。"""
-        if not self.app_state.is_content_loaded or not self.file_loader:
-            self.main_window.setWindowTitle("Project Hayate - 高速漫画ビューア")
-            return
-
-        try:
-            base_name = os.path.basename(self.file_loader.path)
-            indices = self._get_page_indices_to_display()
-            
-            file_names = []
-            for index in indices:
-                try:
-                    file_path = self.file_loader.get_file_path(index)
-                    if file_path:
-                        file_names.append(os.path.basename(file_path))
-                except IndexError:
-                    logging.warning(f"Index {index} is out of range for file list.")
-            
-            if not file_names:
-                title = f"{base_name} - Project Hayate"
-            else:
-                file_names_str = " - ".join(file_names)
-                title = f"{base_name} ({file_names_str}) - Project Hayate"
-
-            self.main_window.setWindowTitle(title)
-
-        except Exception as e:
-            logging.warning(f"Could not update window title: {e}", exc_info=True)
-            # フォールバック
-            if self.file_loader:
-                base_name = os.path.basename(self.file_loader.path)
-                title = f"{base_name} - Project Hayate"
-                self.main_window.setWindowTitle(title)
+        self.title_manager.update_window_title(self._get_page_indices_to_display())
 
     def zoom_in(self):
-        if self.main_window.view:
-            self.main_window.view.zoom_in()
+        self.view_manager.zoom_in()
 
     def zoom_out(self):
-        if self.main_window.view:
-            self.main_window.view.zoom_out()
+        self.view_manager.zoom_out()
 
     def zoom_reset(self):
-        if self.main_window.view:
-            self.main_window.view.zoom_reset()
+        self.view_manager.zoom_reset()
 
     def show_error_dialog(self, message: str, title: str = "エラー") -> None:
-        """
-        エラーメッセージダイアログを表示します。
-
-        Args:
-            message (str): 表示するエラーメッセージ。
-            title (str): ダイアログのタイトル。
-        """
-        QMessageBox.critical(self.main_window, title, message)
+        self.dialog_manager.show_error_dialog(message, title)
 
     def show_about_dialog(self):
-        """バージョン情報ダイアログを表示します。"""
-        version = "0.2.0"
-        author = "Tatsumaki.ishino"
-        team = "KID Project Team"
-        QMessageBox.information(
-            self.main_window,
-            "About HayateViewer",
-            f"HayateViewer\nVersion: {version}\n\nDeveloped by: {author}\nA {team} Production"
-        )
+        self.dialog_manager.show_about_dialog()
+
+    def show_status_message(self, message: str, timeout: int = 0):
+        """ステータスバーにメッセージを表示する。"""
+        self.main_window.status_bar.showMessage(message, timeout)

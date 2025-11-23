@@ -40,3 +40,14 @@ build/
 
 # OS generated files
 .DS_Store
+
+# Debug and test files
+debug_output.png
+debug_test.py
+output.log
+test_output.txt
+*.log
+report.xml
+
+# Serena cache
+.serena/

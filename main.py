@@ -27,7 +27,7 @@ from app.constants import RESTART_CODE
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     app = QApplication(sys.argv)
 
     if getattr(sys, 'frozen', False):

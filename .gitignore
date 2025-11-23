@@ -26,7 +26,7 @@ dist/
 unrar.dll
 HayateViewer_0.4.0.7z
 HayateViewer_0.4.0/
-release_notes.md
+
 config.json
 build/
 *.whl

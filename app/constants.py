@@ -20,6 +20,7 @@ RESAMPLING_MODES_CPU = {
     # Scikit-image
     "SKIMAGE_ORDER_4": "Scikit-image: Quartic (高画質)",
     "SKIMAGE_ORDER_5": "Scikit-image: Quintic (最高画質)",
+
 }
 
 # リサンプリング方式 (GPU / OpenGLバックエンド用)
@@ -40,4 +41,4 @@ PRIORITY_DISPLAY = 1
 PRIORITY_PREFETCH = 10
 
 # アプリケーションバージョン
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.8.0"

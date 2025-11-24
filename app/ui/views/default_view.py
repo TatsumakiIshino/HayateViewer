@@ -1,9 +1,10 @@
+
 from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame, QGestureEvent, QPinchGesture, QPanGesture, QSwipeGesture
 from PySide6.QtGui import QKeyEvent, QPainter, QTransform, QImage, QPixmap
-from PySide6.QtCore import Signal, Qt, QPoint, QRectF
+from PySide6.QtCore import Signal, Qt, QPoint, QRectF, QEvent
 
 if TYPE_CHECKING:
     from app.ui.main_window import MainWindow
@@ -14,6 +15,7 @@ class DefaultGraphicsView(QGraphicsView):
     keyPressed = Signal(QKeyEvent)
     wheelScrolled = Signal(int)
     view_initialized = Signal()
+    swipeTriggered = Signal(str)
 
     def __init__(self, controller: ApplicationController, parent: 'MainWindow' | None = None):
         super().__init__(parent)
@@ -40,6 +42,12 @@ class DefaultGraphicsView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # ジェスチャーの有効化
+        self.grabGesture(Qt.GestureType.PinchGesture)
+        self.grabGesture(Qt.GestureType.PanGesture)
+        self.grabGesture(Qt.GestureType.SwipeGesture)
+        
         self.view_initialized.emit()
 
     def sizeHint(self):
@@ -129,7 +137,8 @@ class DefaultGraphicsView(QGraphicsView):
         event.ignore()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
+        # 右ボタン: ルーペ機能（2倍ズーム）
+        if event.button() == Qt.MouseButton.RightButton:
             self.loupe_active = True
             self.original_transform = self.transform()
             self.last_pan_pos = event.pos()
@@ -141,7 +150,8 @@ class DefaultGraphicsView(QGraphicsView):
             self.scale(2.0, 2.0)
             self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
 
-        elif event.button() == Qt.MouseButton.RightButton:
+        # 左ボタン: ズーム時のパン（移動）
+        elif event.button() == Qt.MouseButton.LeftButton:
             is_zoomed = not self.transform().isIdentity()
             if is_zoomed:
                 self.panning_active = True
@@ -164,16 +174,78 @@ class DefaultGraphicsView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self.loupe_active:
+        if event.button() == Qt.MouseButton.RightButton and self.loupe_active:
             self.loupe_active = False
             self.setTransform(self.original_transform)
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        elif event.button() == Qt.MouseButton.RightButton and self.panning_active:
+        elif event.button() == Qt.MouseButton.LeftButton and self.panning_active:
             self.panning_active = False
             if not self.loupe_active:
                 self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         super().mouseReleaseEvent(event)
+        
+    def event(self, event: QEvent) -> bool:
+        """イベントハンドラをオーバーライドしてジェスチャーイベントを処理する。"""
+        if event.type() == QEvent.Type.Gesture:
+            return self.gestureEvent(event)
+        return super().event(event)
+
+    def gestureEvent(self, event: QGestureEvent) -> bool:
+        """ジェスチャーイベントの振り分け処理。"""
+        if pinch := event.gesture(Qt.GestureType.PinchGesture):
+            self.pinchTriggered(pinch)
+        if pan := event.gesture(Qt.GestureType.PanGesture):
+            self.panTriggered(pan)
+        if swipe := event.gesture(Qt.GestureType.SwipeGesture):
+            self.swipeTriggeredHandler(swipe)
+        return True
+
+    def pinchTriggered(self, gesture: QPinchGesture):
+        """ピンチジェスチャー（ズーム）の処理。"""
+        change_flags = gesture.changeFlags()
+        if change_flags & QPinchGesture.ChangeFlag.ScaleFactorChanged:
+            # ズームの中心点を設定
+            self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+            
+            # スケール変更
+            scale_factor = gesture.scaleFactor()
+            self.scale(scale_factor, scale_factor)
+            
+            # アンカーを戻す
+            self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+
+    def panTriggered(self, gesture: QPanGesture):
+        """パンジェスチャー（スクロールまたはページめくり）の処理。"""
+        # ズーム中はパン（移動）処理を行う
+        pass
+
+    def mouseDoubleClickEvent(self, event):
+        """ダブルクリック（ダブルタップ）イベントの処理。"""
+        if self.transform().isIdentity():
+            if event.button() == Qt.MouseButton.LeftButton:
+                # 画面の左側か右側かを判定
+                if event.pos().x() < self.width() / 2:
+                    logging.info("Double Tap Left Detected")
+                    self.swipeTriggered.emit("left")
+                else:
+                    logging.info("Double Tap Right Detected")
+                    self.swipeTriggered.emit("right")
+        super().mouseDoubleClickEvent(event)
+
+    def swipeTriggeredHandler(self, gesture: QSwipeGesture):
+        """スワイプジェスチャー（ページめくり）の処理。"""
+        if gesture.state() == Qt.GestureState.GestureFinished:
+            if gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Left:
+                logging.info("Swipe Left Detected")
+                self.swipeTriggered.emit("left")
+            elif gesture.horizontalDirection() == QSwipeGesture.SwipeDirection.Right:
+                logging.info("Swipe Right Detected")
+                self.swipeTriggered.emit("right")
+            elif gesture.verticalDirection() == QSwipeGesture.SwipeDirection.Up:
+                self.swipeTriggered.emit("up")
+            elif gesture.verticalDirection() == QSwipeGesture.SwipeDirection.Down:
+                self.swipeTriggered.emit("down")
         
     def zoom_in(self):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
